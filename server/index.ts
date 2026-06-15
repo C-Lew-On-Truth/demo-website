@@ -455,6 +455,7 @@ fastify.get('/api/preview/:id', async (request, reply) => {
   }
 })
 
-fastify.listen({ port: 3001, host: '0.0.0.0' }, () => {
-  console.log('  API  →  http://localhost:3001')
+const port = Number(process.env.PORT) || 3001
+fastify.listen({ port, host: '0.0.0.0' }, () => {
+  console.log(`  API  →  http://localhost:${port}`)
 })
