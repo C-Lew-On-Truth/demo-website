@@ -1,0 +1,29 @@
+{
+  "name": "ad-placer",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n 'SERVER,CLIENT' -c 'blue,green' \"tsx watch server/index.ts\" \"vite\"",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@phosphor-icons/vue": "^2.2.1",
+    "@tailwindcss/vite": "^4.1.12",
+    "cheerio": "^1.0.0",
+    "fastify": "^5.0.0",
+    "puppeteer-core": "^25.1.0",
+    "vue": "^3.4.0",
+    "vue-router": "^4.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "concurrently": "^9.0.0",
+    "tailwindcss": "^4.1.12",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^5.0.0",
+    "vue-tsc": "^3.0.6"
+  }
+}

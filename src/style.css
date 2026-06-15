@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* SeenThis design tokens */
+:root {
+  --color-brand: #ff5500;
+  --color-primary: #1572ed;
+  --color-background: #ffffff;
+  --color-surface-subtle: #fcfbfa;
+  --color-surface-muted: #f0ede9;
+  --color-foreground: #1b1813;
+  --color-muted-foreground: #767471;
+  --color-border: #e3dacf;
+  --color-success: #27be51;
+  --color-destructive: #f43009;
+}
+
+@theme inline {
+  --color-background: var(--color-background);
+  --color-surface-subtle: var(--color-surface-subtle);
+  --color-surface-muted: var(--color-surface-muted);
+  --color-foreground: var(--color-foreground);
+  --color-muted-foreground: var(--color-muted-foreground);
+  --color-border: var(--color-border);
+  --color-primary: var(--color-primary);
+  --color-brand: var(--color-brand);
+  --color-success: var(--color-success);
+  --color-destructive: var(--color-destructive);
+  --font-sans: "Inter", "system-ui", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+}

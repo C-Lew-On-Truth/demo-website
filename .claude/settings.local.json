@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(curl -s -X POST http://localhost:3001/api/preview -H 'Content-Type: application/json' -d '{\"html\":\"<html><body>hello world</body></html>\"}')",
+      "Bash(curl -s \"http://localhost:3001/api/preview/b8756f4c-6e8e-43ec-b9a1-37e4b68d18c5\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('html:', d.get\\('html',''\\)\\)\")",
+      "Bash(curl -s http://localhost:3000/src/views/EditorView.vue)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s -X POST http://localhost:3001/api/scrape -H 'Content-Type: application/json' -d '{\"url\":\"https://www.theguardian.com\"}')",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -X POST http://localhost:3001/api/scrape -H 'Content-Type: application/json' -d '{\"url\":\"https://www.dailymail.co.uk\"}')",
+      "Bash(npx tsc *)",
+      "WebFetch(domain:ad-previews.seenthis.co)",
+      "Bash(curl -sL \"https://ad-previews.seenthis.co/play/zNkP_uD81.0:7c941091e13b372883ff572df77f4266b12bfe69eaf9faeaddc468808f708f34\")",
+      "Bash(curl -sL \"https://ad-previews.seenthis.co/assets/index-BFkJwSSn.js\")",
+      "Bash(curl -s \"https://play-backend.seenthis.co/api/plays/zNkP_uD81.0\")",
+      "Bash(grep -oE '\\\\$\\\\{[^}]+\\\\}/[a-z]+[^`\"]*')",
+      "Bash(grep -oP '\"[^\"]{1,50}\\(width|height|sizes?|format\\)[^\"]{1,50}\"')",
+      "Bash(curl -s \"https://play-backend.seenthis.co/api/zNkP_uD81.0\")",
+      "Bash(curl -s \"https://play-backend.seenthis.co/zNkP_uD81.0\")",
+      "Bash(curl -s \"https://play-backend.seenthis.co/api/play/zNkP_uD81.0\")",
+      "Bash(grep -oP 'fetch\\\\\\(`[^`]+`')",
+      "Bash(grep -oP '\\\\$\\\\{[a-zA-Z_]+\\\\}/[a-zA-Z]+[^`\"]*')",
+      "Bash(grep -oP 'fetch\\\\\\([^\\)]{1,200}\\\\\\)')",
+      "Bash(grep -oP '.{300}fetch\\\\\\(s,\\\\{headers.{100}')",
+      "Bash(curl -sv \"https://ad-previews.seenthis.co/play/zNkP_uD81.0:7c941091e13b372883ff572df77f4266b12bfe69eaf9faeaddc468808f708f34\")",
+      "Bash(grep -oP 'Qc\\\\s*=\\\\s*\\\\{[^}]{1,2000}')",
+      "Bash(curl -s \"https://play-backend.seenthis.co/preview/zNkP_uD81.0\")",
+      "Bash(curl -s \"https://play-backend.seenthis.co/preview/zNkP_uD81.0:7c941091e13b372883ff572df77f4266b12bfe69eaf9faeaddc468808f708f34\")"
+    ]
+  }
+}
