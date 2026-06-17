@@ -52,11 +52,13 @@ export const INTERACTION_SCRIPT_JS = `(function () {
           el.setAttribute('data-ap-slot', String(idx));
           el.setAttribute('data-ap-label', p.l);
 
-          if (!el.style.minHeight) el.style.minHeight = '32px';
+          el.style.minHeight = '50px';
           el.style.outline = '2px dashed rgba(21,114,237,0.6)';
           el.style.outlineOffset = '2px';
           el.style.position = el.style.position || 'relative';
           el.style.cursor = 'pointer';
+          el.style.display = el.style.display || 'block';
+          el.style.overflow = 'visible';
 
           var badge = document.createElement('div');
           badge.setAttribute('data-ap-badge', '1');
@@ -132,36 +134,47 @@ export const INTERACTION_SCRIPT_JS = `(function () {
       parent.postMessage({ type: 'ap:pick-done' }, '*');
       return;
     }
+
+    // Walk up to the nearest block-level element so the insertion point is clean
+    var anchor = el;
+    var BLOCKS = ['DIV','P','H1','H2','H3','H4','H5','H6','ARTICLE','SECTION','ASIDE','FIGURE','BLOCKQUOTE','LI','TD','HEADER','FOOTER','NAV','MAIN'];
+    while (anchor.parentElement && anchor.parentElement !== document.body && !BLOCKS.includes(anchor.tagName)) {
+      anchor = anchor.parentElement;
+    }
+
+    // Create a new container div inserted BEFORE the anchor as a sibling
     var idx2 = stamped.length;
-    stamped.push(el);
-    el.setAttribute('data-ap-slot', String(idx2));
-    el.setAttribute('data-ap-label', 'Custom Slot');
-    el.style.minHeight = el.style.minHeight || '32px';
-    el.style.outline = '2px dashed rgba(21,114,237,0.6)';
-    el.style.position = el.style.position || 'relative';
-    el.style.cursor = 'pointer';
+    var container = document.createElement('div');
+    stamped.push(container);
+    container.setAttribute('data-ap-slot', String(idx2));
+    container.setAttribute('data-ap-label', 'Custom');
+    container.setAttribute('data-ap-custom', '1');
+    container.style.cssText = 'display:block;width:100%;text-align:center;outline:2px dashed rgba(21,114,237,0.6);'
+      + 'outline-offset:2px;position:relative;cursor:pointer;padding:8px 0;box-sizing:border-box;overflow:visible;';
+
     var badge2 = document.createElement('div');
     badge2.setAttribute('data-ap-badge', '1');
     badge2.style.cssText = 'position:absolute;top:0;left:0;font:10px/1.6 monospace;'
       + 'background:rgba(21,114,237,0.88);color:#fff;padding:0 7px;z-index:2147483647;'
       + 'pointer-events:none;white-space:nowrap;';
-    badge2.textContent = 'Custom Slot → click to select';
-    el.insertBefore(badge2, el.firstChild);
-    el.addEventListener('click', function (ev) {
+    badge2.textContent = 'Custom → click to select';
+    container.appendChild(badge2);
+
+    container.addEventListener('click', function (ev) {
       ev.preventDefault(); ev.stopPropagation();
       parent.postMessage({ type: 'ap:click',
         selector: '[data-ap-slot="' + this.getAttribute('data-ap-slot') + '"]',
-        label: 'Custom Slot' }, '*');
+        label: 'Custom' }, '*');
     }, true);
-    var name2 = el.id ? '#' + el.id
-      : (el.className && typeof el.className === 'string'
-        ? '.' + el.className.trim().split(/\\s+/)[0]
-        : el.tagName.toLowerCase());
-    var rect3 = el.getBoundingClientRect();
+
+    var parentEl = anchor.parentElement || document.body;
+    parentEl.insertBefore(container, anchor);
+
+    var rect3 = anchor.getBoundingClientRect();
     stopPick();
     parent.postMessage({
       type: 'ap:slot-added',
-      slot: { selector: '[data-ap-slot="' + idx2 + '"]', label: 'Custom Slot', name: name2 },
+      slot: { selector: '[data-ap-slot="' + idx2 + '"]', label: 'Custom', name: 'custom' },
       rect: { w: Math.round(rect3.width), h: Math.round(rect3.height) },
     }, '*');
     parent.postMessage({ type: 'ap:pick-done' }, '*');
@@ -209,10 +222,20 @@ export const INTERACTION_SCRIPT_JS = `(function () {
       var prevStash = target.querySelector('[data-ap-stash]');
       if (prevStash) prevStash.remove();
 
+      // Ensure the slot container is visible
+      if (window.getComputedStyle(target).display === 'none') target.style.display = 'block';
+      if (window.getComputedStyle(target).visibility === 'hidden') target.style.visibility = 'visible';
+      target.style.overflow = 'visible';
+
       target.setAttribute('data-ap-filled', '1');
       target.style.outlineColor = 'rgba(255,85,0,0.6)';
       target.style.outlineStyle = 'dashed';
       target.style.minHeight = '';
+
+      if (e.data.size) {
+        target.style.minHeight = e.data.size.h + 'px';
+        target.style.textAlign = 'center';
+      }
 
       var badge3 = target.querySelector('[data-ap-badge]');
       if (badge3) {
@@ -231,9 +254,12 @@ export const INTERACTION_SCRIPT_JS = `(function () {
       var wrapper = document.createElement('div');
       wrapper.setAttribute('data-ap-placement', e.data.id);
       if (e.data.size) {
-        wrapper.style.cssText = 'width:' + e.data.size.w + 'px;height:' + e.data.size.h
-          + 'px;overflow:hidden;display:block;';
+        wrapper.style.cssText = 'display:block;margin:0 auto;width:' + e.data.size.w + 'px;height:' + e.data.size.h
+          + 'px;overflow:hidden;';
+      } else {
+        wrapper.style.cssText = 'display:block;margin:0 auto;';
       }
+
       var tmp = document.createElement('div');
       tmp.innerHTML = e.data.tagHtml;
       (function transplant(src, dst) {
@@ -264,20 +290,25 @@ export const INTERACTION_SCRIPT_JS = `(function () {
       if (!placement) return;
       var slot2 = placement.closest('[data-ap-slot]');
       if (slot2) {
-        var stash2 = slot2.querySelector('[data-ap-stash]');
-        if (stash2) {
-          Array.from(stash2.childNodes).forEach(function (n) { slot2.insertBefore(n, stash2); });
-          stash2.remove();
-        }
-        placement.remove();
-        slot2.removeAttribute('data-ap-filled');
-        slot2.style.outlineColor = 'rgba(21,114,237,0.6)';
-        slot2.style.outlineStyle = 'dashed';
-        slot2.style.minHeight = '32px';
-        var b = slot2.querySelector('[data-ap-badge]');
-        if (b) {
-          b.style.background = 'rgba(21,114,237,0.88)';
-          b.textContent = (slot2.getAttribute('data-ap-label') || 'Ad Slot') + ' → click to select';
+        if (slot2.getAttribute('data-ap-custom')) {
+          // Custom pick container — remove the whole inserted div
+          slot2.remove();
+        } else {
+          var stash2 = slot2.querySelector('[data-ap-stash]');
+          if (stash2) {
+            Array.from(stash2.childNodes).forEach(function (n) { slot2.insertBefore(n, stash2); });
+            stash2.remove();
+          }
+          placement.remove();
+          slot2.removeAttribute('data-ap-filled');
+          slot2.style.outlineColor = 'rgba(21,114,237,0.6)';
+          slot2.style.outlineStyle = 'dashed';
+          slot2.style.minHeight = '50px';
+          var b = slot2.querySelector('[data-ap-badge]');
+          if (b) {
+            b.style.background = 'rgba(21,114,237,0.88)';
+            b.textContent = (slot2.getAttribute('data-ap-label') || 'Ad Slot') + ' → click to select';
+          }
         }
       } else {
         placement.remove();
@@ -291,13 +322,20 @@ export const INTERACTION_SCRIPT_JS = `(function () {
       if (s) s.remove();
       root.querySelectorAll('[data-ap-badge],[data-ap-stash]').forEach(function (el) { el.remove(); });
       root.querySelectorAll('[data-ap-slot]').forEach(function (el) {
+        // Remove empty custom pick containers that have no placed ad
+        if (el.getAttribute('data-ap-custom') && !el.querySelector('[data-ap-placement]')) {
+          el.remove(); return;
+        }
         el.style.outline = '';
         el.style.outlineOffset = '';
         el.style.cursor = '';
         el.style.minHeight = '';
+        el.style.textAlign = '';
+        el.style.overflow = '';
         el.removeAttribute('data-ap-slot');
         el.removeAttribute('data-ap-label');
         el.removeAttribute('data-ap-filled');
+        el.removeAttribute('data-ap-custom');
       });
       root.querySelectorAll('[data-ap-placement]').forEach(function (el) {
         el.removeAttribute('data-ap-placement');

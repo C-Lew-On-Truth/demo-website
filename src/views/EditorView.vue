@@ -190,6 +190,10 @@ function removeTag(slot: AdSlot) {
   slot.placementId = undefined
   iframeRef.value?.contentWindow?.postMessage({ type: 'ap:remove', id }, '*')
   previewUrl.value = null
+  // Custom pick slots are fully removed from the DOM on remove — clean up the list too
+  if (slot.label === 'Custom') {
+    adSlots.value = adSlots.value.filter(s => s !== slot)
+  }
 }
 
 function startPickMode() {
