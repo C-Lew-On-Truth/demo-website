@@ -27,7 +27,8 @@
       "Bash(curl -sv \"https://ad-previews.seenthis.co/play/zNkP_uD81.0:7c941091e13b372883ff572df77f4266b12bfe69eaf9faeaddc468808f708f34\")",
       "Bash(grep -oP 'Qc\\\\s*=\\\\s*\\\\{[^}]{1,2000}')",
       "Bash(curl -s \"https://play-backend.seenthis.co/preview/zNkP_uD81.0\")",
-      "Bash(curl -s \"https://play-backend.seenthis.co/preview/zNkP_uD81.0:7c941091e13b372883ff572df77f4266b12bfe69eaf9faeaddc468808f708f34\")"
+      "Bash(curl -s \"https://play-backend.seenthis.co/preview/zNkP_uD81.0:7c941091e13b372883ff572df77f4266b12bfe69eaf9faeaddc468808f708f34\")",
+      "Bash(git *)"
     ]
   }
 }

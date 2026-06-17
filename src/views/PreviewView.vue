@@ -8,14 +8,12 @@ const router = useRouter()
 const html = ref<string | null>(null)
 const error = ref<string | null>(null)
 
-onMounted(async () => {
+onMounted(() => {
   try {
-    const res = await fetch(`/api/preview/${route.params.id}`)
-    if (!res.ok) throw new Error('Preview not found or expired')
-    const data = await res.json()
-    // Inject a helper script into the preview HTML so ad scripts execute
-    // from a proper page context (not srcdoc origin issues)
-    html.value = data.html
+    const id = route.params.id as string
+    const stored = localStorage.getItem(`preview-${id}`)
+    if (!stored) throw new Error('Preview not found — previews are stored in this browser only and cannot be shared across devices')
+    html.value = stored
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load preview'
   }
@@ -43,7 +41,7 @@ onMounted(async () => {
         </div>
       </div>
       <span class="text-[11px]" style="color:#767471">
-        Ads are live — share this URL with your client
+        Ads are live — preview is stored in this browser only
       </span>
     </div>
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { INTERACTION_SCRIPT_JS } from '../interaction-script'
 import {
   PhArrowRight,
   PhArrowClockwise,
@@ -105,17 +106,41 @@ async function scrape() {
   if (slotsTimeout) clearTimeout(slotsTimeout)
 
   try {
-    const res = await fetch('/api/scrape', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: target }),
-    })
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`
+    const res = await fetch(proxyUrl)
+    if (!res.ok) throw new Error(`Proxy error ${res.status} — could not fetch page`)
     const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Failed to load page')
-    pageHtml.value = data.html
+    if (!data.contents) throw new Error('Could not load page — the site may block proxy access')
+
+    const parsedUrl = new URL(target)
+    const basePath = parsedUrl.pathname.replace(/\/[^/]*$/, '/') || '/'
+
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(data.contents as string, 'text/html')
+
+    doc.querySelectorAll('base').forEach(el => el.remove())
+    doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"], meta[http-equiv="content-security-policy"]').forEach(el => el.remove())
+
+    const base = doc.createElement('base')
+    base.href = `${parsedUrl.origin}${basePath}`
+    doc.head.prepend(base)
+
+    doc.querySelectorAll<HTMLElement>('[src^="//"]').forEach(el => {
+      el.setAttribute('src', 'https:' + el.getAttribute('src'))
+    })
+    doc.querySelectorAll<HTMLElement>('[href^="//"]').forEach(el => {
+      const rel = el.getAttribute('rel')
+      if (rel === 'canonical' || rel === 'alternate') return
+      el.setAttribute('href', 'https:' + el.getAttribute('href'))
+    })
+
+    const scriptEl = doc.createElement('script')
+    scriptEl.id = '__ad-placer__'
+    scriptEl.textContent = INTERACTION_SCRIPT_JS
+    doc.body.appendChild(scriptEl)
+
+    pageHtml.value = '<!DOCTYPE html>' + doc.documentElement.outerHTML
     slotsLoading.value = true
-    // INTERACTION_SCRIPT scans at 500 ms and again at 3.5 s after iframe load.
-    // Wait 6 s total before declaring "nothing found" and auto-entering pick mode.
     slotsTimeout = setTimeout(() => {
       slotsLoading.value = false
       if (adSlots.value.length === 0) startPickMode()
@@ -227,7 +252,6 @@ async function generatePreview() {
   generatingPreview.value = true
   error.value = null
   try {
-    // Ask iframe for the current clean DOM (ads placed, editor artifacts removed)
     const html = await new Promise<string>((resolve, reject) => {
       previewResolve = resolve
       const timeout = setTimeout(() => reject(new Error('Timed out reading page — try again')), 8000)
@@ -236,17 +260,10 @@ async function generatePreview() {
       iframeRef.value?.contentWindow?.postMessage({ type: 'ap:get-html' }, '*')
     })
 
-    const res = await fetch('/api/preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ html }),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      throw new Error((data as Record<string, string>).error || `Server error ${res.status}`)
-    }
-    const { id } = await res.json()
-    previewUrl.value = `${window.location.origin}/preview/${id}`
+    const id = Math.random().toString(36).slice(2, 18)
+    localStorage.setItem(`preview-${id}`, html)
+    const base = `${window.location.origin}${window.location.pathname}`
+    previewUrl.value = `${base}#/preview/${id}`
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to generate preview'
   } finally {
@@ -297,13 +314,28 @@ async function fetchPlayInfo(u: string) {
   playError.value = null
   playData.value = null
   try {
-    const res = await fetch('/api/play-info', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: u }),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Failed to fetch preview info')
+    const match = typeof u === 'string' && u.match(/ad-previews\.seenthis\.co\/play\/([^?#\s]+)/)
+    if (!match) throw new Error('Not a valid SeenThis preview URL')
+    const playId = match[1]
+
+    let data: PlayData
+    try {
+      const res = await fetch(`https://play-backend.seenthis.co/preview/${playId}`, {
+        signal: AbortSignal.timeout(10_000),
+      })
+      if (!res.ok) throw new Error('Preview not found or access denied')
+      data = await res.json()
+    } catch {
+      // Direct fetch blocked (CORS) — route through allorigins proxy
+      const proxyRes = await fetch(
+        `https://api.allorigins.win/get?url=${encodeURIComponent(`https://play-backend.seenthis.co/preview/${playId}`)}`,
+        { signal: AbortSignal.timeout(15_000) },
+      )
+      if (!proxyRes.ok) throw new Error('Could not reach SeenThis backend')
+      const proxyData = await proxyRes.json()
+      data = JSON.parse(proxyData.contents as string) as PlayData
+    }
+
     playData.value = data
   } catch (e) {
     playError.value = e instanceof Error ? e.message : 'Failed to load preview'
@@ -381,7 +413,7 @@ onUnmounted(() => {
         <div v-if="loading" class="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10" style="background:rgba(255,255,255,0.88)">
           <PhCircleNotch :size="34" class="animate-spin" style="color:#1572ed" />
           <p class="text-sm" style="color:#767471">Loading page…</p>
-          <p class="text-xs" style="color:#a09c98">Rendering with Chrome — may take 15–20 seconds</p>
+          <p class="text-xs" style="color:#a09c98">Fetching via proxy — JS-rendered content may not appear</p>
         </div>
 
         <!-- Status badge -->
