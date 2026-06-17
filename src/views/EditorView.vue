@@ -15,6 +15,10 @@ import {
   PhX,
 } from '@phosphor-icons/vue'
 
+// In production (GitHub Pages) VITE_WORKER_URL is set via GitHub repo variable.
+// In local dev it's unset and the app falls back to the Fastify backend at /api/*.
+const WORKER_URL = import.meta.env.VITE_WORKER_URL || ''
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface AdSlot {
@@ -106,40 +110,50 @@ async function scrape() {
   if (slotsTimeout) clearTimeout(slotsTimeout)
 
   try {
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`
-    const res = await fetch(proxyUrl)
-    if (!res.ok) throw new Error(`Proxy error ${res.status} — could not fetch page`)
-    const data = await res.json()
-    if (!data.contents) throw new Error('Could not load page — the site may block proxy access')
+    let html: string
 
-    const parsedUrl = new URL(target)
-    const basePath = parsedUrl.pathname.replace(/\/[^/]*$/, '/') || '/'
+    if (WORKER_URL) {
+      const res = await fetch(`${WORKER_URL}?url=${encodeURIComponent(target)}`)
+      if (!res.ok) throw new Error(`Proxy error ${res.status}`)
+      const data = await res.json()
+      if (!data.contents) throw new Error('Could not load page — the site may block access')
 
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(data.contents as string, 'text/html')
+      const parsedUrl = new URL(target)
+      const basePath = parsedUrl.pathname.replace(/\/[^/]*$/, '/') || '/'
+      const doc = new DOMParser().parseFromString(data.contents as string, 'text/html')
 
-    doc.querySelectorAll('base').forEach(el => el.remove())
-    doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"], meta[http-equiv="content-security-policy"]').forEach(el => el.remove())
+      doc.querySelectorAll('base').forEach(el => el.remove())
+      doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"], meta[http-equiv="content-security-policy"]').forEach(el => el.remove())
 
-    const base = doc.createElement('base')
-    base.href = `${parsedUrl.origin}${basePath}`
-    doc.head.prepend(base)
+      const base = doc.createElement('base')
+      base.href = `${parsedUrl.origin}${basePath}`
+      doc.head.prepend(base)
 
-    doc.querySelectorAll<HTMLElement>('[src^="//"]').forEach(el => {
-      el.setAttribute('src', 'https:' + el.getAttribute('src'))
-    })
-    doc.querySelectorAll<HTMLElement>('[href^="//"]').forEach(el => {
-      const rel = el.getAttribute('rel')
-      if (rel === 'canonical' || rel === 'alternate') return
-      el.setAttribute('href', 'https:' + el.getAttribute('href'))
-    })
+      doc.querySelectorAll<HTMLElement>('[src^="//"]').forEach(el => el.setAttribute('src', 'https:' + el.getAttribute('src')))
+      doc.querySelectorAll<HTMLElement>('[href^="//"]').forEach(el => {
+        const rel = el.getAttribute('rel')
+        if (rel === 'canonical' || rel === 'alternate') return
+        el.setAttribute('href', 'https:' + el.getAttribute('href'))
+      })
 
-    const scriptEl = doc.createElement('script')
-    scriptEl.id = '__ad-placer__'
-    scriptEl.textContent = INTERACTION_SCRIPT_JS
-    doc.body.appendChild(scriptEl)
+      const scriptEl = doc.createElement('script')
+      scriptEl.id = '__ad-placer__'
+      scriptEl.textContent = INTERACTION_SCRIPT_JS
+      doc.body.appendChild(scriptEl)
 
-    pageHtml.value = '<!DOCTYPE html>' + doc.documentElement.outerHTML
+      html = '<!DOCTYPE html>' + doc.documentElement.outerHTML
+    } else {
+      const res = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: target }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to load page')
+      html = data.html
+    }
+
+    pageHtml.value = html
     slotsLoading.value = true
     slotsTimeout = setTimeout(() => {
       slotsLoading.value = false
@@ -260,10 +274,26 @@ async function generatePreview() {
       iframeRef.value?.contentWindow?.postMessage({ type: 'ap:get-html' }, '*')
     })
 
-    const id = Math.random().toString(36).slice(2, 18)
-    localStorage.setItem(`preview-${id}`, html)
-    const base = `${window.location.origin}${window.location.pathname}`
-    previewUrl.value = `${base}#/preview/${id}`
+    if (WORKER_URL) {
+      const res = await fetch(`${WORKER_URL}/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html }),
+      })
+      if (!res.ok) throw new Error(`Failed to save preview (${res.status})`)
+      const { id } = await res.json()
+      previewUrl.value = `${WORKER_URL}/preview/${id}`
+    } else {
+      const res = await fetch('/api/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html }),
+      })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      const { id } = await res.json()
+      const base = `${window.location.origin}${window.location.pathname}`
+      previewUrl.value = `${base}#/preview/${id}`
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to generate preview'
   } finally {
@@ -319,23 +349,21 @@ async function fetchPlayInfo(u: string) {
     const playId = match[1]
 
     let data: PlayData
-    try {
-      const res = await fetch(`https://play-backend.seenthis.co/preview/${playId}`, {
-        signal: AbortSignal.timeout(10_000),
-      })
-      if (!res.ok) throw new Error('Preview not found or access denied')
-      data = await res.json()
-    } catch {
-      // Direct fetch blocked (CORS) — route through allorigins proxy
-      const proxyRes = await fetch(
-        `https://api.allorigins.win/get?url=${encodeURIComponent(`https://play-backend.seenthis.co/preview/${playId}`)}`,
-        { signal: AbortSignal.timeout(15_000) },
-      )
+    if (WORKER_URL) {
+      const proxyRes = await fetch(`${WORKER_URL}?url=${encodeURIComponent(`https://play-backend.seenthis.co/preview/${playId}`)}`)
       if (!proxyRes.ok) throw new Error('Could not reach SeenThis backend')
       const proxyData = await proxyRes.json()
       data = JSON.parse(proxyData.contents as string) as PlayData
+    } else {
+      const res = await fetch('/api/play-info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: u }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to fetch preview info')
+      data = json
     }
-
     playData.value = data
   } catch (e) {
     playError.value = e instanceof Error ? e.message : 'Failed to load preview'
@@ -365,12 +393,12 @@ onUnmounted(() => {
   <div class="flex flex-col h-screen bg-white overflow-hidden" style="font-family:system-ui,sans-serif;color:#1b1813;">
 
     <!-- Header -->
-    <header class="shrink-0 flex items-center gap-4 px-4 py-2.5 border-b bg-[#fcfbfa]" style="border-color:#e3dacf">
-      <div class="flex items-center gap-2 shrink-0">
+    <header class="shrink-0 relative flex items-center justify-center px-4 py-2.5 border-b bg-[#fcfbfa]" style="border-color:#e3dacf">
+      <div class="absolute left-4 flex items-center gap-2">
         <div class="w-7 h-7 rounded flex items-center justify-center text-white text-[11px] font-bold" style="background:#ff5500">ST</div>
         <span class="text-sm font-semibold tracking-tight">Ad Placer</span>
       </div>
-      <form class="flex flex-1 items-center gap-2 max-w-2xl" @submit.prevent="scrape">
+      <form class="flex items-center gap-2 w-full max-w-2xl" @submit.prevent="scrape">
         <input
           v-model="url"
           type="url"
@@ -413,7 +441,7 @@ onUnmounted(() => {
         <div v-if="loading" class="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10" style="background:rgba(255,255,255,0.88)">
           <PhCircleNotch :size="34" class="animate-spin" style="color:#1572ed" />
           <p class="text-sm" style="color:#767471">Loading page…</p>
-          <p class="text-xs" style="color:#a09c98">Fetching via proxy — JS-rendered content may not appear</p>
+          <p class="text-xs" style="color:#a09c98">{{ WORKER_URL ? 'Fetching page…' : 'Rendering with Chrome — may take 15–20 seconds' }}</p>
         </div>
 
         <!-- Status badge -->

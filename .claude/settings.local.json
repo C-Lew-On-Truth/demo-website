@@ -28,7 +28,19 @@
       "Bash(grep -oP 'Qc\\\\s*=\\\\s*\\\\{[^}]{1,2000}')",
       "Bash(curl -s \"https://play-backend.seenthis.co/preview/zNkP_uD81.0\")",
       "Bash(curl -s \"https://play-backend.seenthis.co/preview/zNkP_uD81.0:7c941091e13b372883ff572df77f4266b12bfe69eaf9faeaddc468808f708f34\")",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(curl *)",
+      "Bash(npm run *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(xxd)",
+      "Bash(pkill -f \"tsx watch\")",
+      "Bash(pkill -f \"vite\")",
+      "Bash(npx tsx *)",
+      "Bash(pkill -f \"tsx\")",
+      "Skill(run)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(npx playwright *)",
+      "Bash(node *)"
     ]
   }
 }
