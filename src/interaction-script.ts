@@ -269,6 +269,12 @@ export const INTERACTION_SCRIPT_JS = `(function () {
             Array.from(n.attributes).forEach(function (a) { s.setAttribute(a.name, a.value); });
             if (n.textContent) s.textContent = n.textContent;
             dst.appendChild(s);
+          } else if (n.nodeName === 'IFRAME') {
+            // Create a fresh iframe so the browser navigates to src (cloneNode doesn't reliably load)
+            var f = document.createElement('iframe');
+            Array.from(n.attributes).forEach(function (a) { f.setAttribute(a.name, a.value); });
+            f.style.display = 'block';
+            dst.appendChild(f);
           } else {
             var c = n.cloneNode(false);
             dst.appendChild(c);
