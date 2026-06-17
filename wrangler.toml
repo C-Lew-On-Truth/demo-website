@@ -1,0 +1,7 @@
+name = "ad-placer-proxy"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "PREVIEWS"
+id = "239d632afff9463eb4207b808c455ae9"
