@@ -184,6 +184,30 @@ function placeTag(slot: AdSlot) {
   previewUrl.value = null
 }
 
+// Hover preview: shows the currently-configured ad live in a slot, without
+// committing it (that's placeTag's job). Debounced so quickly sweeping the
+// mouse across the slot list doesn't fire a preview - and its script/pixel
+// - for every slot it passes over.
+let previewHoverTimer: ReturnType<typeof setTimeout> | null = null
+
+function hoverSlot(slot: AdSlot) {
+  if (previewHoverTimer) clearTimeout(previewHoverTimer)
+  if (slot.placementId || !hasRealTag.value) return
+  previewHoverTimer = setTimeout(() => {
+    const tag = tagCode.value.trim()
+    const [sw, sh] = adSize.value !== 'auto' ? adSize.value.split('x').map(Number) : [0, 0]
+    iframeRef.value?.contentWindow?.postMessage(
+      { type: 'ap:preview', selector: slot.selector, tagHtml: tag, size: sw ? { w: sw, h: sh } : null },
+      '*',
+    )
+  }, 200)
+}
+
+function unhoverSlot() {
+  if (previewHoverTimer) clearTimeout(previewHoverTimer)
+  iframeRef.value?.contentWindow?.postMessage({ type: 'ap:clear-preview' }, '*')
+}
+
 function removeTag(slot: AdSlot) {
   if (!slot.placementId) return
   const id = slot.placementId
@@ -207,7 +231,11 @@ function cancelPickMode() {
 }
 
 function rescan() {
-  adSlots.value = []
+  // Don't clear adSlots here: the page's scan() can only ever report
+  // elements it hasn't seen before (see ap:slots above), so a rescan
+  // normally finds nothing "new" - clearing first would just drop every
+  // already-detected (and possibly already-placed) slot from the list for
+  // no reason, rather than genuinely re-detecting anything.
   slotsLoading.value = true
   pickMode.value = false
   if (slotsTimeout) clearTimeout(slotsTimeout)
@@ -226,10 +254,15 @@ function handleMessage(e: MessageEvent) {
   if (e.data.type === 'ap:slots') {
     if (slotsTimeout) clearTimeout(slotsTimeout)
     slotsLoading.value = false
-    const existing = new Map(adSlots.value.map(s => [s.selector, s.placementId]))
-    const incoming = (e.data.slots as AdSlot[]).map(s => ({ ...s, placementId: existing.get(s.selector) }))
-    // Merge: keep placed slots, add new unplaced ones
-    adSlots.value = incoming
+    // The page scans twice (once fast, once after a delay for lazy-loaded
+    // ads) and each pass only reports elements it hasn't seen before - so
+    // this message is an incremental batch, not the full picture. Actually
+    // merge rather than replace, or the first pass's slots (already shown
+    // and clickable on the page) get silently dropped from the list the
+    // moment the second pass's batch arrives.
+    const existingSelectors = new Set(adSlots.value.map(s => s.selector))
+    const newOnes = (e.data.slots as AdSlot[]).filter(s => !existingSelectors.has(s.selector))
+    adSlots.value = [...adSlots.value, ...newOnes]
     if (adSlots.value.length === 0) startPickMode()
     return
   }
@@ -331,6 +364,51 @@ function selectVariant(group: AdGroup, variant: AdVariant) {
   adSize.value = `${variant.width}x${variant.height}`
 }
 
+// ── Live ad preview (before placing) ────────────────────────────────────────
+// Renders the actual tag HTML/iframe on its own, sized to the chosen ad
+// dimensions, so it's visible before committing it to any slot in the page.
+// Both input modes end up with real markup in tagCode (a script tag, or an
+// <iframe> for a selected SeenThis variant), so one preview covers both.
+
+const hasRealTag = computed(() => {
+  const t = tagCode.value.trim()
+  return !!t && !t.includes('YOUR_PID_HERE')
+})
+
+const previewDims = computed<{ w: number; h: number }>(() => {
+  if (inputMode.value === 'preview-url' && selectedVariant.value) {
+    return { w: selectedVariant.value.width, h: selectedVariant.value.height }
+  }
+  if (adSize.value !== 'auto') {
+    const [w, h] = adSize.value.split('x').map(Number)
+    if (w && h) return { w, h }
+  }
+  return { w: 300, h: 250 }
+})
+
+const MAX_PREVIEW_WIDTH = 288 // sidebar width (320px) minus padding
+const previewScale = computed(() => Math.min(1, MAX_PREVIEW_WIDTH / previewDims.value.w))
+
+// Debounced: re-rendering (and re-executing the ad's own script) on every
+// keystroke while typing tag code would be janky and could double-fire
+// tracking pixels.
+const previewHtml = ref('')
+let previewDebounce: ReturnType<typeof setTimeout> | null = null
+watch(
+  [tagCode, hasRealTag],
+  () => {
+    if (previewDebounce) clearTimeout(previewDebounce)
+    if (!hasRealTag.value) {
+      previewHtml.value = ''
+      return
+    }
+    previewDebounce = setTimeout(() => {
+      previewHtml.value = `<!DOCTYPE html><html><head><style>body{margin:0}</style></head><body>${tagCode.value}</body></html>`
+    }, 500)
+  },
+  { immediate: true },
+)
+
 function setInputMode(mode: 'tag' | 'preview-url') {
   inputMode.value = mode
   if (mode === 'tag') {
@@ -390,6 +468,7 @@ onMounted(() => window.addEventListener('message', handleMessagePatched))
 onUnmounted(() => {
   window.removeEventListener('message', handleMessagePatched)
   if (slotsTimeout) clearTimeout(slotsTimeout)
+  if (previewDebounce) clearTimeout(previewDebounce)
 })
 </script>
 
@@ -561,6 +640,40 @@ onUnmounted(() => {
           </template>
         </div>
 
+        <!-- Live ad preview — shows the creative on its own, before it's placed into any slot -->
+        <div class="p-4 border-b" style="border-color:#e3dacf">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[10px] font-semibold uppercase tracking-widest" style="color:#767471">Preview</span>
+            <span v-if="hasRealTag" class="text-[10px] font-mono" style="color:#a09c98">{{ previewDims.w }}×{{ previewDims.h }}</span>
+          </div>
+          <div
+            v-if="hasRealTag && previewHtml"
+            class="rounded-md border overflow-hidden mx-auto"
+            :style="{
+              borderColor: '#e3dacf',
+              width: previewDims.w * previewScale + 'px',
+              height: previewDims.h * previewScale + 'px',
+            }"
+          >
+            <iframe
+              :srcdoc="previewHtml"
+              :width="previewDims.w"
+              :height="previewDims.h"
+              scrolling="no"
+              class="border-0 origin-top-left"
+              :style="{ transform: `scale(${previewScale})` }"
+              title="Ad preview"
+            />
+          </div>
+          <div
+            v-else
+            class="flex items-center justify-center rounded-md border border-dashed text-[11px] text-center px-3"
+            style="border-color:#e3dacf;color:#a09c98;height:100px"
+          >
+            {{ inputMode === 'tag' ? 'Enter your tag code to preview it here' : 'Select a size above to preview it here' }}
+          </div>
+        </div>
+
         <!-- Slots list -->
         <div class="flex-1 flex flex-col overflow-hidden">
           <div class="flex items-center justify-between px-4 pt-3 pb-2">
@@ -629,6 +742,8 @@ onUnmounted(() => {
                 :style="slot.placementId
                   ? 'border-color:#ff5500;background:rgba(255,85,0,0.04)'
                   : 'border-color:#e3dacf;background:white'"
+                @mouseenter="hoverSlot(slot)"
+                @mouseleave="unhoverSlot()"
               >
                 <div class="flex items-start gap-2 mb-2">
                   <span class="w-2 h-2 rounded-full mt-1 shrink-0" :style="slot.placementId ? 'background:#ff5500' : 'background:#1572ed'" />

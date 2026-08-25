@@ -50,9 +50,13 @@ async function scrapeWithPuppeteer(url: string): Promise<string> {
       '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     )
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
-    await page.goto(url, { waitUntil: 'load', timeout: 30_000 })
-    // Give JS-rendered content (ads, SPAs) time to settle
-    await new Promise(r => setTimeout(r, 4000))
+    // Ad-heavy sites keep background network activity going indefinitely
+    // (trackers, lazy ads, etc.), so the 'load' event - which waits for
+    // every last subresource - can take far longer than 30s or never fire
+    // at all. 'domcontentloaded' fires as soon as the HTML is usable, then
+    // a longer settle window gives ads/JS-rendered content time to paint.
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    await new Promise(r => setTimeout(r, 6000))
     return await page.content()
   } finally {
     await browser.close()

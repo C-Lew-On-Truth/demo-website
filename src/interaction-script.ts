@@ -100,6 +100,45 @@ export const INTERACTION_SCRIPT_JS = `(function () {
     }
   }
 
+  // Builds the actual ad markup (executing <script> tags, recreating
+  // <iframe>s so the browser navigates them) inside dst. Shared by the real
+  // "insert" (committed placement) and "preview" (hover, uncommitted) paths
+  // below - same rendering, different lifecycle.
+  function transplant(src, dst) {
+    Array.from(src.childNodes).forEach(function (n) {
+      if (n.nodeName === 'SCRIPT') {
+        var s = document.createElement('script');
+        Array.from(n.attributes).forEach(function (a) { s.setAttribute(a.name, a.value); });
+        if (n.textContent) s.textContent = n.textContent;
+        dst.appendChild(s);
+      } else if (n.nodeName === 'IFRAME') {
+        // Create a fresh iframe so the browser navigates to src (cloneNode doesn't reliably load)
+        var f = document.createElement('iframe');
+        Array.from(n.attributes).forEach(function (a) { f.setAttribute(a.name, a.value); });
+        f.style.display = 'block';
+        dst.appendChild(f);
+      } else {
+        var c = n.cloneNode(false);
+        dst.appendChild(c);
+        if (n.childNodes.length) transplant(n, c);
+      }
+    });
+  }
+
+  // Only one hover-preview is ever live at a time (unlike real placements,
+  // which can be many) - the sidebar clears the previous one before/while
+  // moving to the next slot.
+  function clearPreview() {
+    var existing = document.querySelector('[data-ap-preview]');
+    if (existing) existing.remove();
+    var previewingSlot = document.querySelector('[data-ap-previewing]');
+    if (previewingSlot) {
+      previewingSlot.removeAttribute('data-ap-previewing');
+      previewingSlot.style.outlineColor = 'rgba(21,114,237,0.6)';
+      previewingSlot.style.outlineStyle = 'dashed';
+    }
+  }
+
   var pickActive = false, pickHovered = null;
 
   function stopPick() {
@@ -214,6 +253,7 @@ export const INTERACTION_SCRIPT_JS = `(function () {
     if (e.data.type === 'ap:cancel-pick') { stopPick(); return; }
 
     if (e.data.type === 'ap:insert') {
+      clearPreview();
       var target = document.querySelector(e.data.selector);
       if (!target) return;
 
@@ -262,32 +302,49 @@ export const INTERACTION_SCRIPT_JS = `(function () {
 
       var tmp = document.createElement('div');
       tmp.innerHTML = e.data.tagHtml;
-      (function transplant(src, dst) {
-        Array.from(src.childNodes).forEach(function (n) {
-          if (n.nodeName === 'SCRIPT') {
-            var s = document.createElement('script');
-            Array.from(n.attributes).forEach(function (a) { s.setAttribute(a.name, a.value); });
-            if (n.textContent) s.textContent = n.textContent;
-            dst.appendChild(s);
-          } else if (n.nodeName === 'IFRAME') {
-            // Create a fresh iframe so the browser navigates to src (cloneNode doesn't reliably load)
-            var f = document.createElement('iframe');
-            Array.from(n.attributes).forEach(function (a) { f.setAttribute(a.name, a.value); });
-            f.style.display = 'block';
-            dst.appendChild(f);
-          } else {
-            var c = n.cloneNode(false);
-            dst.appendChild(c);
-            if (n.childNodes.length) transplant(n, c);
-          }
-        });
-      })(tmp, wrapper);
+      transplant(tmp, wrapper);
 
       if (badge3) {
         badge3.insertAdjacentElement('afterend', wrapper);
       } else {
         target.insertBefore(wrapper, target.firstChild);
       }
+      return;
+    }
+
+    // Hover preview: shows the current ad live in a detected slot WITHOUT
+    // committing it (no placementId, doesn't touch the slot's real content -
+    // real content is only stashed/replaced by ap:insert). Only one is ever
+    // live; moving to a different slot just calls this again.
+    if (e.data.type === 'ap:preview') {
+      clearPreview();
+      var previewTarget = document.querySelector(e.data.selector);
+      // Don't preview over a slot that already has a real, committed ad.
+      if (!previewTarget || previewTarget.hasAttribute('data-ap-filled')) return;
+
+      var previewWrapper = document.createElement('div');
+      previewWrapper.setAttribute('data-ap-preview', '1');
+      previewWrapper.style.cssText = 'display:block;margin:0 auto;pointer-events:none;'
+        + (e.data.size ? 'width:' + e.data.size.w + 'px;height:' + e.data.size.h + 'px;overflow:hidden;' : '');
+
+      var previewTmp = document.createElement('div');
+      previewTmp.innerHTML = e.data.tagHtml;
+      transplant(previewTmp, previewWrapper);
+
+      var previewBadge = previewTarget.querySelector('[data-ap-badge]');
+      if (previewBadge) {
+        previewBadge.insertAdjacentElement('afterend', previewWrapper);
+      } else {
+        previewTarget.insertBefore(previewWrapper, previewTarget.firstChild);
+      }
+      previewTarget.setAttribute('data-ap-previewing', '1');
+      previewTarget.style.outlineColor = 'rgba(21,114,237,0.9)';
+      previewTarget.style.outlineStyle = 'solid';
+      return;
+    }
+
+    if (e.data.type === 'ap:clear-preview') {
+      clearPreview();
       return;
     }
 
@@ -326,7 +383,10 @@ export const INTERACTION_SCRIPT_JS = `(function () {
       var root = document.documentElement.cloneNode(true);
       var s = root.querySelector('#__ad-placer__');
       if (s) s.remove();
-      root.querySelectorAll('[data-ap-badge],[data-ap-stash]').forEach(function (el) { el.remove(); });
+      // A hover preview should never end up in the generated link - it's
+      // clone-and-cleanup here just like everything else, but strip it
+      // outright rather than leaving an uncommitted, unbadged ad in place.
+      root.querySelectorAll('[data-ap-badge],[data-ap-stash],[data-ap-preview]').forEach(function (el) { el.remove(); });
       root.querySelectorAll('[data-ap-slot]').forEach(function (el) {
         // Remove empty custom pick containers that have no placed ad
         if (el.getAttribute('data-ap-custom') && !el.querySelector('[data-ap-placement]')) {
@@ -342,6 +402,7 @@ export const INTERACTION_SCRIPT_JS = `(function () {
         el.removeAttribute('data-ap-label');
         el.removeAttribute('data-ap-filled');
         el.removeAttribute('data-ap-custom');
+        el.removeAttribute('data-ap-previewing');
       });
       root.querySelectorAll('[data-ap-placement]').forEach(function (el) {
         el.removeAttribute('data-ap-placement');
